@@ -63,7 +63,7 @@ class _MapWidgetState extends State<MapWidget> {
       setState(() {
         _isLoading = false;
       });
-      print('Error getting current location: $e');
+      debugPrint('Error getting current location: $e');
     }
   }
 
