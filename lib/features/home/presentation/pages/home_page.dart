@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:geolocator/geolocator.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -43,38 +45,113 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
-class MapHomeView extends StatelessWidget {
+class MapHomeView extends StatefulWidget {
   const MapHomeView({super.key});
+
+  @override
+  State<MapHomeView> createState() => _MapHomeViewState();
+}
+
+class _MapHomeViewState extends State<MapHomeView> {
+  GoogleMapController? _mapController;
+  LatLng _currentLocation = const LatLng(37.7749, -122.4194); // Default to SF
+  bool _isLoading = true;
+  String _errorMessage = '';
+  Set<Marker> _markers = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _getCurrentLocation();
+  }
+
+  Future<void> _getCurrentLocation() async {
+    try {
+      LocationPermission permission = await Geolocator.checkPermission();
+      
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          setState(() {
+            _errorMessage = 'Location permissions are denied';
+            _isLoading = false;
+          });
+          return;
+        }
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        setState(() {
+          _errorMessage = 'Location permissions are permanently denied';
+          _isLoading = false;
+        });
+        return;
+      }
+
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+      
+      setState(() {
+        _currentLocation = LatLng(position.latitude, position.longitude);
+        _isLoading = false;
+      });
+      
+      // Add current location marker
+      _addCurrentLocationMarker();
+      
+      // Move camera to current location
+      if (_mapController != null) {
+        _mapController!.animateCamera(
+          CameraUpdate.newLatLng(_currentLocation),
+        );
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Error getting location: $e';
+        _isLoading = false;
+      });
+    }
+  }
+
+  void _addCurrentLocationMarker() {
+    setState(() {
+      _markers.add(
+        Marker(
+          markerId: const MarkerId('current_location'),
+          position: _currentLocation,
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
+          infoWindow: const InfoWindow(title: 'Your Location'),
+        ),
+      );
+    });
+  }
+
+  void _onMapTapped(LatLng position) {
+    setState(() {
+      // Remove previous destination markers
+      _markers.removeWhere((marker) => marker.markerId.value.startsWith('destination'));
+      
+      // Add new destination marker
+      _markers.add(
+        Marker(
+          markerId: MarkerId('destination_${DateTime.now().millisecondsSinceEpoch}'),
+          position: position,
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+          infoWindow: const InfoWindow(title: 'Destination'),
+        ),
+      );
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: Stack(
         children: [
-          // Map placeholder
-          Container(
-            color: Colors.grey[300],
-            child: const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.map,
-                    size: 100,
-                    color: Colors.grey,
-                  ),
-                  SizedBox(height: 16),
-                  Text(
-                    'Map will be implemented here',
-                    style: TextStyle(
-                      fontSize: 18,
-                      color: Colors.grey,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
+          // Map
+          _buildMapWidget(),
+          
           // Search overlay
           SafeArea(
             child: Padding(
@@ -94,13 +171,22 @@ class MapHomeView extends StatelessWidget {
                         ),
                       ],
                     ),
-                    child: const TextField(
-                      decoration: InputDecoration(
+                    child: TextField(
+                      decoration: const InputDecoration(
                         hintText: 'Where are you going?',
                         prefixIcon: Icon(Icons.search),
                         border: InputBorder.none,
                         contentPadding: EdgeInsets.all(16),
                       ),
+                      onTap: () {
+                        // TODO: Navigate to search page
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Search functionality coming soon!'),
+                            duration: Duration(seconds: 2),
+                          ),
+                        );
+                      },
                     ),
                   ),
                   const Spacer(),
@@ -108,10 +194,27 @@ class MapHomeView extends StatelessWidget {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: () {
+                      onPressed: _markers.length > 1 ? () {
                         // TODO: Navigate to booking page
-                      },
-                      child: const Text('Book a Ride'),
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Booking functionality coming soon!'),
+                            duration: Duration(seconds: 2),
+                          ),
+                        );
+                      } : null,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: Text(
+                        _markers.length > 1 ? 'Book a Ride' : 'Tap on map to set destination',
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
                     ),
                   ),
                 ],
@@ -120,6 +223,86 @@ class MapHomeView extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildMapWidget() {
+    if (_isLoading) {
+      return Container(
+        color: Colors.grey[300],
+        child: const Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text(
+                'Loading map...',
+                style: TextStyle(
+                  fontSize: 18,
+                  color: Colors.grey,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (_errorMessage.isNotEmpty) {
+      return Container(
+        color: Colors.grey[300],
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(
+                Icons.error,
+                size: 100,
+                color: Colors.red,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                _errorMessage,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 16,
+                  color: Colors.red,
+                ),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () {
+                  setState(() {
+                    _isLoading = true;
+                    _errorMessage = '';
+                  });
+                  _getCurrentLocation();
+                },
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return GoogleMap(
+      onMapCreated: (GoogleMapController controller) {
+        _mapController = controller;
+      },
+      initialCameraPosition: CameraPosition(
+        target: _currentLocation,
+        zoom: 14.0,
+      ),
+      markers: _markers,
+      onTap: _onMapTapped,
+      myLocationEnabled: true,
+      myLocationButtonEnabled: true,
+      mapType: MapType.normal,
+      zoomControlsEnabled: false,
+      compassEnabled: true,
+      trafficEnabled: false,
     );
   }
 }
