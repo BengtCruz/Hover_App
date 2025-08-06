@@ -1,4 +1,6 @@
+import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+
 class LocationService {
   static Future<bool> requestLocationPermission() async {
     LocationPermission permission = await Geolocator.checkPermission();
@@ -22,6 +24,12 @@ class LocationService {
       bool hasPermission = await requestLocationPermission();
       if (!hasPermission) return null;
       
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        debugPrint('Location services are disabled.');
+        return null;
+      }
+      
       Position position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
       );
@@ -40,5 +48,13 @@ class LocationService {
         distanceFilter: 10,
       ),
     );
+  }
+  
+  static Future<LocationPermission> getPermissionStatus() async {
+    return await Geolocator.checkPermission();
+  }
+  
+  static Future<bool> isLocationServiceEnabled() async {
+    return await Geolocator.isLocationServiceEnabled();
   }
 }

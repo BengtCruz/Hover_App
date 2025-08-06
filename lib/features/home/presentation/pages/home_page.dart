@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
+import '../../../../core/services/location_service.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -64,6 +65,8 @@ class _MapHomeViewState extends State<MapHomeView> {
   bool _isLoading = true;
   String _errorMessage = '';
   Set<Marker> _markers = {};
+  
+  static const String _destinationMarkerId = 'destination';
 
   @override
   void initState() {
@@ -73,48 +76,37 @@ class _MapHomeViewState extends State<MapHomeView> {
 
   Future<void> _getCurrentLocation() async {
     try {
-      LocationPermission permission = await Geolocator.checkPermission();
-      
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          setState(() {
-            _errorMessage = 'Location permissions are denied';
-            _isLoading = false;
-          });
-          return;
-        }
-      }
+      setState(() {
+        _isLoading = true;
+        _errorMessage = '';
+      });
 
-      if (permission == LocationPermission.deniedForever) {
+      Position? position = await LocationService.getCurrentLocation();
+      
+      if (position != null) {
         setState(() {
-          _errorMessage = 'Location permissions are permanently denied';
+          _currentLocation = LatLng(position.latitude, position.longitude);
           _isLoading = false;
         });
-        return;
-      }
-
-      Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
-      
-      setState(() {
-        _currentLocation = LatLng(position.latitude, position.longitude);
-        _isLoading = false;
-      });
-      
-      // Add current location marker
-      _addCurrentLocationMarker();
-      
-      // Move camera to current location
-      if (_mapController != null) {
-        _mapController!.animateCamera(
-          CameraUpdate.newLatLng(_currentLocation),
-        );
+        
+        // Add current location marker
+        _addCurrentLocationMarker();
+        
+        // Move camera to current location
+        if (_mapController != null) {
+          _mapController!.animateCamera(
+            CameraUpdate.newLatLng(_currentLocation),
+          );
+        }
+      } else {
+        setState(() {
+          _errorMessage = 'Unable to get your location. Please check location permissions.';
+          _isLoading = false;
+        });
       }
     } catch (e) {
       setState(() {
-        _errorMessage = 'Error getting location: $e';
+        _errorMessage = 'Error getting location: ${e.toString()}';
         _isLoading = false;
       });
     }
@@ -227,6 +219,19 @@ class _MapHomeViewState extends State<MapHomeView> {
               ),
             ),
           ),
+          
+          // Current location button (floating)
+          Positioned(
+            bottom: 150,
+            right: 16,
+            child: FloatingActionButton(
+              onPressed: _getCurrentLocation,
+              backgroundColor: Colors.white,
+              foregroundColor: Colors.blue,
+              mini: true,
+              child: const Icon(Icons.my_location),
+            ),
+          ),
         ],
       ),
     );
@@ -286,6 +291,17 @@ class _MapHomeViewState extends State<MapHomeView> {
                   _getCurrentLocation();
                 },
                 child: const Text('Retry'),
+              ),
+              const SizedBox(height: 8),
+              ElevatedButton(
+                onPressed: () async {
+                  await Geolocator.openLocationSettings();
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('Open Settings'),
               ),
             ],
           ),
