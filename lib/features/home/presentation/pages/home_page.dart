@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
-import 'dart:async';
-import '../../../../core/services/location_service.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -20,19 +18,13 @@ class _HomePageState extends State<HomePage> {
     const ProfileView(),
   ];
 
-  void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: _pages[_selectedIndex],
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
-        onTap: _onItemTapped,
+        onTap: (index) => setState(() => _selectedIndex = index),
         type: BottomNavigationBarType.fixed,
         items: const [
           BottomNavigationBarItem(
@@ -66,61 +58,118 @@ class _MapHomeViewState extends State<MapHomeView> {
   bool _isLoading = true;
   String _errorMessage = '';
   Set<Marker> _markers = {};
-  StreamSubscription<Position>? _locationSubscription;
-  bool _isTrackingLocation = false;
-  
-  static const String _destinationMarkerId = 'destination';
+  bool _mapCreated = false;
+  bool _locationPermissionGranted = false;
+  String _locationStatus = 'Checking location...';
 
   @override
   void initState() {
     super.initState();
-    _getCurrentLocation();
+    _checkLocationServices();
   }
 
-  @override
-  void dispose() {
-    _locationSubscription?.cancel();
-    super.dispose();
+  Future<void> _checkLocationServices() async {
+    try {
+      // Check if location services are enabled
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        setState(() {
+          _errorMessage = 'Location services are disabled. Please enable location services.';
+          _locationStatus = 'Location services disabled';
+          _isLoading = false;
+        });
+        return;
+      }
+
+      // Check and request permissions
+      await _getCurrentLocation();
+    } catch (e) {
+      print('❌ Error checking location services: $e');
+      setState(() {
+        _errorMessage = 'Error checking location services: $e';
+        _locationStatus = 'Error checking location services';
+        _isLoading = false;
+      });
+    }
   }
 
   Future<void> _getCurrentLocation() async {
     try {
+      print('🔍 Starting location request...');
       setState(() {
-        _isLoading = true;
-        _errorMessage = '';
+        _locationStatus = 'Requesting location permission...';
+      });
+      
+      LocationPermission permission = await Geolocator.checkPermission();
+      print('📍 Location permission status: $permission');
+      
+      if (permission == LocationPermission.denied) {
+        setState(() {
+          _locationStatus = 'Requesting location permission...';
+        });
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          setState(() {
+            _errorMessage = 'Location permissions are denied. Please grant location access in settings.';
+            _locationStatus = 'Location permission denied';
+            _locationPermissionGranted = false;
+            _isLoading = false;
+          });
+          return;
+        }
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        setState(() {
+          _errorMessage = 'Location permissions are permanently denied. Please enable in app settings.';
+          _locationStatus = 'Location permission permanently denied';
+          _locationPermissionGranted = false;
+          _isLoading = false;
+        });
+        return;
+      }
+
+      setState(() {
+        _locationPermissionGranted = true;
+        _locationStatus = 'Getting your location...';
       });
 
-      Position? position = await LocationService.getCurrentLocation();
+      print('✅ Getting current position...');
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 10),
+      );
       
-      if (position != null) {
-        setState(() {
-          _currentLocation = LatLng(position.latitude, position.longitude);
-          _isLoading = false;
-        });
-        
-        // Add current location marker
-        _addCurrentLocationMarker();
-        
-        // Move camera to current location
-        if (_mapController != null) {
-          _mapController!.animateCamera(
-            CameraUpdate.newLatLng(_currentLocation),
-          );
-        }
-        
-        // Optionally start location tracking
-        if (!_isTrackingLocation) {
-          _startLocationTracking();
-        }
-      } else {
-        setState(() {
-          _errorMessage = 'Unable to get your location. Please check location permissions.';
-          _isLoading = false;
-        });
+      print('📍 Got position: ${position.latitude}, ${position.longitude}');
+      print('📍 Accuracy: ${position.accuracy} meters');
+      print('📍 Timestamp: ${position.timestamp}');
+      
+      setState(() {
+        _currentLocation = LatLng(position.latitude, position.longitude);
+        _locationStatus = 'Location found: ${position.latitude.toStringAsFixed(6)}, ${position.longitude.toStringAsFixed(6)}';
+        _isLoading = false;
+      });
+      
+      // Add current location marker
+      _addCurrentLocationMarker();
+      
+      // Move camera to current location
+      if (_mapController != null) {
+        print('🎥 Moving camera to current location...');
+        _mapController!.animateCamera(
+          CameraUpdate.newCameraPosition(
+            CameraPosition(
+              target: _currentLocation,
+              zoom: 16.0,
+            ),
+          ),
+        );
       }
     } catch (e) {
+      print('❌ Error getting location: $e');
       setState(() {
-        _errorMessage = 'Error getting location: ${e.toString()}';
+        _errorMessage = 'Error getting location: $e';
+        _locationStatus = 'Failed to get location';
         _isLoading = false;
       });
     }
@@ -133,68 +182,29 @@ class _MapHomeViewState extends State<MapHomeView> {
           markerId: const MarkerId('current_location'),
           position: _currentLocation,
           icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
-          infoWindow: const InfoWindow(title: 'Your Location'),
+          infoWindow: InfoWindow(
+            title: 'Your Location',
+            snippet: 'Lat: ${_currentLocation.latitude.toStringAsFixed(6)}\nLng: ${_currentLocation.longitude.toStringAsFixed(6)}',
+          ),
         ),
       );
     });
+    print('📌 Added current location marker');
   }
 
   void _onMapTapped(LatLng position) {
+    print('🎯 Map tapped at: ${position.latitude}, ${position.longitude}');
     setState(() {
       // Remove previous destination markers
-      _markers.removeWhere((marker) => marker.markerId.value.startsWith(_destinationMarkerId));
+      _markers.removeWhere((marker) => marker.markerId.value.startsWith('destination'));
       
       // Add new destination marker
       _markers.add(
         Marker(
-          markerId: const MarkerId(_destinationMarkerId),
+          markerId: MarkerId('destination_${DateTime.now().millisecondsSinceEpoch}'),
           position: position,
           icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
           infoWindow: const InfoWindow(title: 'Destination'),
-        ),
-      );
-    });
-  }
-
-  void _startLocationTracking() {
-    if (_isTrackingLocation) return;
-
-    _locationSubscription = LocationService.getLocationStream().listen(
-      (Position position) {
-        setState(() {
-          _currentLocation = LatLng(position.latitude, position.longitude);
-          _isTrackingLocation = true;
-        });
-        _updateCurrentLocationMarker();
-      },
-      onError: (error) {
-        debugPrint('Location tracking error: $error');
-        setState(() {
-          _isTrackingLocation = false;
-        });
-      },
-    );
-  }
-
-  void _stopLocationTracking() {
-    _locationSubscription?.cancel();
-    setState(() {
-      _isTrackingLocation = false;
-    });
-  }
-
-  void _updateCurrentLocationMarker() {
-    setState(() {
-      // Remove old current location marker
-      _markers.removeWhere((marker) => marker.markerId.value == 'current_location');
-      
-      // Add updated current location marker
-      _markers.add(
-        Marker(
-          markerId: const MarkerId('current_location'),
-          position: _currentLocation,
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
-          infoWindow: const InfoWindow(title: 'Your Location'),
         ),
       );
     });
@@ -207,6 +217,61 @@ class _MapHomeViewState extends State<MapHomeView> {
         children: [
           // Map
           _buildMapWidget(),
+          
+          // Location status overlay
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 80,
+            left: 16,
+            right: 16,
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.8),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        _locationPermissionGranted ? Icons.location_on : Icons.location_off,
+                        color: _locationPermissionGranted ? Colors.green : Colors.red,
+                        size: 16,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Location Status',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _locationStatus,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                    ),
+                  ),
+                  if (_errorMessage.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'Error: $_errorMessage',
+                      style: const TextStyle(
+                        color: Colors.red,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
           
           // Search overlay
           SafeArea(
@@ -235,7 +300,6 @@ class _MapHomeViewState extends State<MapHomeView> {
                         contentPadding: EdgeInsets.all(16),
                       ),
                       onTap: () {
-                        // TODO: Navigate to search page
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
                             content: Text('Search functionality coming soon!'),
@@ -246,12 +310,37 @@ class _MapHomeViewState extends State<MapHomeView> {
                     ),
                   ),
                   const Spacer(),
+                  
+                  // Current location button
+                  if (!_isLoading && _errorMessage.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            setState(() {
+                              _isLoading = true;
+                              _errorMessage = '';
+                            });
+                            _checkLocationServices();
+                          },
+                          icon: const Icon(Icons.my_location),
+                          label: const Text('Try Again'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.orange,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                        ),
+                      ),
+                    ),
+                  
                   // Book ride button
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
                       onPressed: _markers.length > 1 ? () {
-                        // TODO: Navigate to booking page
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
                             content: Text('Booking functionality coming soon!'),
@@ -277,34 +366,6 @@ class _MapHomeViewState extends State<MapHomeView> {
               ),
             ),
           ),
-          
-          // Current location button (floating)
-          Positioned(
-            bottom: 150,
-            right: 16,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                FloatingActionButton(
-                  onPressed: _isTrackingLocation ? _stopLocationTracking : _startLocationTracking,
-                  backgroundColor: _isTrackingLocation ? Colors.green : Colors.white,
-                  foregroundColor: _isTrackingLocation ? Colors.white : Colors.blue,
-                  mini: true,
-                  heroTag: "location_tracking",
-                  child: Icon(_isTrackingLocation ? Icons.gps_fixed : Icons.gps_not_fixed),
-                ),
-                const SizedBox(height: 8),
-                FloatingActionButton(
-                  onPressed: _getCurrentLocation,
-                  backgroundColor: Colors.white,
-                  foregroundColor: Colors.blue,
-                  mini: true,
-                  heroTag: "refresh_location",
-                  child: const Icon(Icons.my_location),
-                ),
-              ],
-            ),
-          ),
         ],
       ),
     );
@@ -314,67 +375,19 @@ class _MapHomeViewState extends State<MapHomeView> {
     if (_isLoading) {
       return Container(
         color: Colors.grey[300],
-        child: const Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 16),
-              Text(
-                'Loading map...',
-                style: TextStyle(
-                  fontSize: 18,
-                  color: Colors.grey,
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    if (_errorMessage.isNotEmpty) {
-      return Container(
-        color: Colors.grey[300],
         child: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(
-                Icons.error,
-                size: 100,
-                color: Colors.red,
-              ),
+              const CircularProgressIndicator(),
               const SizedBox(height: 16),
               Text(
-                _errorMessage,
-                textAlign: TextAlign.center,
+                _locationStatus,
                 style: const TextStyle(
                   fontSize: 16,
-                  color: Colors.red,
+                  color: Colors.grey,
                 ),
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: () {
-                  setState(() {
-                    _isLoading = true;
-                    _errorMessage = '';
-                  });
-                  _getCurrentLocation();
-                },
-                child: const Text('Retry'),
-              ),
-              const SizedBox(height: 8),
-              ElevatedButton(
-                onPressed: () async {
-                  await Geolocator.openLocationSettings();
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue,
-                  foregroundColor: Colors.white,
-                ),
-                child: const Text('Open Settings'),
+                textAlign: TextAlign.center,
               ),
             ],
           ),
@@ -384,7 +397,23 @@ class _MapHomeViewState extends State<MapHomeView> {
 
     return GoogleMap(
       onMapCreated: (GoogleMapController controller) {
+        print('🗺️ Google Map created successfully!');
         _mapController = controller;
+        setState(() {
+          _mapCreated = true;
+        });
+        
+        // Move to current location if we have it
+        if (!_isLoading && _locationPermissionGranted) {
+          controller.animateCamera(
+            CameraUpdate.newCameraPosition(
+              CameraPosition(
+                target: _currentLocation,
+                zoom: 16.0,
+              ),
+            ),
+          );
+        }
       },
       initialCameraPosition: CameraPosition(
         target: _currentLocation,
@@ -392,8 +421,8 @@ class _MapHomeViewState extends State<MapHomeView> {
       ),
       markers: _markers,
       onTap: _onMapTapped,
-      myLocationEnabled: true,
-      myLocationButtonEnabled: true,
+      myLocationEnabled: _locationPermissionGranted,
+      myLocationButtonEnabled: _locationPermissionGranted,
       mapType: MapType.normal,
       zoomControlsEnabled: false,
       compassEnabled: true,
