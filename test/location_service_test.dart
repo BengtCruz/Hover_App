@@ -19,5 +19,17 @@ void main() {
       final stream = LocationService.getLocationStream();
       expect(stream, isA<Stream<Position>>());
     });
+
+    test('should handle permission status checks', () async {
+      // This test validates that the method exists and returns a LocationPermission
+      final permission = LocationService.getPermissionStatus();
+      expect(permission, isA<Future<LocationPermission>>());
+    });
+
+    test('should handle location service status checks', () async {
+      // This test validates that the method exists and returns a boolean
+      final serviceEnabled = LocationService.isLocationServiceEnabled();
+      expect(serviceEnabled, isA<Future<bool>>());
+    });
   });
 }
