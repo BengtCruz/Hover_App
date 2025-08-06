@@ -130,12 +130,12 @@ class _MapHomeViewState extends State<MapHomeView> {
   void _onMapTapped(LatLng position) {
     setState(() {
       // Remove previous destination markers
-      _markers.removeWhere((marker) => marker.markerId.value.startsWith('destination'));
+      _markers.removeWhere((marker) => marker.markerId.value.startsWith(_destinationMarkerId));
       
       // Add new destination marker
       _markers.add(
         Marker(
-          markerId: const MarkerId('destination'),
+          markerId: const MarkerId(_destinationMarkerId),
           position: position,
           icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
           infoWindow: const InfoWindow(title: 'Destination'),
