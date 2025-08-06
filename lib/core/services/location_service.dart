@@ -28,7 +28,7 @@ class LocationService {
       
       return position;
     } catch (e) {
-      print('Error getting location: $e');
+      debugPrint('Error getting location: $e');
       return null;
     }
   }
