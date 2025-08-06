@@ -59,6 +59,8 @@ class MapHomeView extends StatefulWidget {
 }
 
 class _MapHomeViewState extends State<MapHomeView> {
+  static const String _destinationMarkerId = 'destination';
+  
   GoogleMapController? _mapController;
   LatLng _currentLocation = const LatLng(37.7749, -122.4194); // Default to SF
   bool _isLoading = true;
