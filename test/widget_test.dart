@@ -11,20 +11,25 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hover_app/main.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
+  testWidgets('Location detection UI test', (WidgetTester tester) async {
     // Build our app and trigger a frame.
     await tester.pumpWidget(const MyApp());
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    // Verify that our initial message is displayed.
+    expect(find.text('Press the button to get your current location'), findsOneWidget);
+    expect(find.text('Your Current Location:'), findsOneWidget);
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
+    // Verify the location icon is present
+    expect(find.byIcon(Icons.location_on), findsOneWidget);
+    
+    // Verify the floating action button with location icon is present
+    expect(find.byIcon(Icons.my_location), findsOneWidget);
+    
+    // Tap the location button and trigger a frame.
+    await tester.tap(find.byIcon(Icons.my_location));
     await tester.pump();
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    // Verify that the loading state is shown
+    expect(find.text('Getting location...'), findsOneWidget);
   });
 }
