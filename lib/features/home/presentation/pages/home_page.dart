@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
+import 'dart:async';
+import '../../../../core/services/location_service.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -64,6 +66,10 @@ class _MapHomeViewState extends State<MapHomeView> {
   bool _isLoading = true;
   String _errorMessage = '';
   Set<Marker> _markers = {};
+  StreamSubscription<Position>? _locationSubscription;
+  bool _isTrackingLocation = false;
+  
+  static const String _destinationMarkerId = 'destination';
 
   @override
   void initState() {
@@ -71,50 +77,50 @@ class _MapHomeViewState extends State<MapHomeView> {
     _getCurrentLocation();
   }
 
+  @override
+  void dispose() {
+    _locationSubscription?.cancel();
+    super.dispose();
+  }
+
   Future<void> _getCurrentLocation() async {
     try {
-      LocationPermission permission = await Geolocator.checkPermission();
-      
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          setState(() {
-            _errorMessage = 'Location permissions are denied';
-            _isLoading = false;
-          });
-          return;
-        }
-      }
+      setState(() {
+        _isLoading = true;
+        _errorMessage = '';
+      });
 
-      if (permission == LocationPermission.deniedForever) {
+      Position? position = await LocationService.getCurrentLocation();
+      
+      if (position != null) {
         setState(() {
-          _errorMessage = 'Location permissions are permanently denied';
+          _currentLocation = LatLng(position.latitude, position.longitude);
           _isLoading = false;
         });
-        return;
-      }
-
-      Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
-      
-      setState(() {
-        _currentLocation = LatLng(position.latitude, position.longitude);
-        _isLoading = false;
-      });
-      
-      // Add current location marker
-      _addCurrentLocationMarker();
-      
-      // Move camera to current location
-      if (_mapController != null) {
-        _mapController!.animateCamera(
-          CameraUpdate.newLatLng(_currentLocation),
-        );
+        
+        // Add current location marker
+        _addCurrentLocationMarker();
+        
+        // Move camera to current location
+        if (_mapController != null) {
+          _mapController!.animateCamera(
+            CameraUpdate.newLatLng(_currentLocation),
+          );
+        }
+        
+        // Optionally start location tracking
+        if (!_isTrackingLocation) {
+          _startLocationTracking();
+        }
+      } else {
+        setState(() {
+          _errorMessage = 'Unable to get your location. Please check location permissions.';
+          _isLoading = false;
+        });
       }
     } catch (e) {
       setState(() {
-        _errorMessage = 'Error getting location: $e';
+        _errorMessage = 'Error getting location: ${e.toString()}';
         _isLoading = false;
       });
     }
@@ -145,6 +151,50 @@ class _MapHomeViewState extends State<MapHomeView> {
           position: position,
           icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
           infoWindow: const InfoWindow(title: 'Destination'),
+        ),
+      );
+    });
+  }
+
+  void _startLocationTracking() {
+    if (_isTrackingLocation) return;
+
+    _locationSubscription = LocationService.getLocationStream().listen(
+      (Position position) {
+        setState(() {
+          _currentLocation = LatLng(position.latitude, position.longitude);
+          _isTrackingLocation = true;
+        });
+        _updateCurrentLocationMarker();
+      },
+      onError: (error) {
+        debugPrint('Location tracking error: $error');
+        setState(() {
+          _isTrackingLocation = false;
+        });
+      },
+    );
+  }
+
+  void _stopLocationTracking() {
+    _locationSubscription?.cancel();
+    setState(() {
+      _isTrackingLocation = false;
+    });
+  }
+
+  void _updateCurrentLocationMarker() {
+    setState(() {
+      // Remove old current location marker
+      _markers.removeWhere((marker) => marker.markerId.value == 'current_location');
+      
+      // Add updated current location marker
+      _markers.add(
+        Marker(
+          markerId: const MarkerId('current_location'),
+          position: _currentLocation,
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
+          infoWindow: const InfoWindow(title: 'Your Location'),
         ),
       );
     });
@@ -227,6 +277,34 @@ class _MapHomeViewState extends State<MapHomeView> {
               ),
             ),
           ),
+          
+          // Current location button (floating)
+          Positioned(
+            bottom: 150,
+            right: 16,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                FloatingActionButton(
+                  onPressed: _isTrackingLocation ? _stopLocationTracking : _startLocationTracking,
+                  backgroundColor: _isTrackingLocation ? Colors.green : Colors.white,
+                  foregroundColor: _isTrackingLocation ? Colors.white : Colors.blue,
+                  mini: true,
+                  heroTag: "location_tracking",
+                  child: Icon(_isTrackingLocation ? Icons.gps_fixed : Icons.gps_not_fixed),
+                ),
+                const SizedBox(height: 8),
+                FloatingActionButton(
+                  onPressed: _getCurrentLocation,
+                  backgroundColor: Colors.white,
+                  foregroundColor: Colors.blue,
+                  mini: true,
+                  heroTag: "refresh_location",
+                  child: const Icon(Icons.my_location),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -286,6 +364,17 @@ class _MapHomeViewState extends State<MapHomeView> {
                   _getCurrentLocation();
                 },
                 child: const Text('Retry'),
+              ),
+              const SizedBox(height: 8),
+              ElevatedButton(
+                onPressed: () async {
+                  await Geolocator.openLocationSettings();
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('Open Settings'),
               ),
             ],
           ),
