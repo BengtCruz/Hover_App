@@ -135,7 +135,7 @@ class _MapHomeViewState extends State<MapHomeView> {
       // Add new destination marker
       _markers.add(
         Marker(
-          markerId: MarkerId('destination_${DateTime.now().millisecondsSinceEpoch}'),
+          markerId: const MarkerId('destination'),
           position: position,
           icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
           infoWindow: const InfoWindow(title: 'Destination'),
